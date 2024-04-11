@@ -1,160 +1,120 @@
-/*使用中断的方式检测Key3按键的状态，实现按一次按键，LED2点亮，再次按下，LED2熄灭*/
-#include "exynos_4412.h"
-
-void do_irq(void){
-	static int flag = 0;
-	/*获取产生中断的中断号*/
-	unsigned int irqNum = 0;
-	irqNum = CPU0.ICCIAR & 0x3FF;
-	/*根据中断号处理相关的中断*/
-	switch(irqNum){
-		case 0:
-			/*0号中断的处理程序*/
-			break;
-		case 1:
-			//1号中断的处理程序
-			break;
-			/*
-			 * ... ...
-			 * */
-		case 58: //按键3
-			printf("key3 press\n");
-			if(flag){
-				/*点亮*/
-				GPX2.DAT = GPX2.DAT | (0x1 << 7);
-				flag = !flag;
-			}
-			else{
-				/*熄灭*/
-				GPX2.DAT = GPX2.DAT & (~(0x1 << 7));
-				flag = !flag;
-			}
-			/*清除GPIO控制器中GPX1_2中断挂起标志位*/
-			EXT_INT41_PEND = (1 << 2);
-			/*将当前中断的中断号写回中断控制器中，以这种方式告知中断控制器当前中断已处理完毕，可以处理其他中断*/
-			CPU0.ICCEOIR = CPU0.ICCEOIR & (~(0x3FF)) | (58);
-			break;
-				
-			/*
-			 * ... ...
-			 * */
-		case 159:
-			//159号中断的处理程序
-			break;
-		default:
-			break;
-
-	}
-}
-
-int main(int argc, char *argv[]){
-
-	/*外设层次 - 让外部的硬件控制器产生一个中断信号发送给中断控制器*/
-	/*将GPX1_2设置成中断功能*/
-	GPX1.CON = GPX1.CON & (~(0xF << 8)) | (0xF << 8);
-	/*设置GPX1_2中断的触发方式下降沿触发*/
-	EXT_INT41_CON = EXT_INT41_CON & (~(0x7 << 8)) | (0x2 << 8);
-	/*使能GPX1_2的中断功能*/
-	EXT_INT41_MASK = EXT_INT41_MASK & (~(0x1 << 2));
-
-	/*中断控制器层次 - 让中断控制器接收外设产生的中断信号并对其进行管理然后再转发给CPU处理*/
-	/*全局使能中断控制器使其能接收外设产生的中断信号并转发到CPU接口*/
-	ICDDCR = ICDDCR | 1;
-	/*在中断控制器中使能58号中断，使中断控制器接收到58号中断后能将其转发到CPU接口*/
-	ICDISER.ICDISER1 = ICDISER.ICDISER1 | (1 << 26);
-	/*选择由CPU0来处理58号中断*/
-	ICDIPTR.ICDIPTR14 = ICDIPTR.ICDIPTR14 & (~(0xFF	<< 16)) | (0x1 << 16);
-	/*使能中断控制器和CPU0之间的接口，使中断控制器转发的中断信号能够到达CPU0*/
-	CPU0.ICCICR = CPU0.ICCICR | 1;
-		
-	/*配置GPX2_7,使其输出模式*/
-	GPX2.CON = GPX2.CON & (~(0xF << 28)) | (0x1 << 28);
-
-	while(1);
-
-	return 0;
-}
-
-#if 0
-/*中断测试按键*/
+/*编程实现通过LED状态显示当前电压范围
+ *电压在1501mv~1800mv时，LED2、LED3、LED4、LED5点亮
+  电压在1001mv~1500mv时，LED2、LED3、LED4点亮
+  电压在501mv~1000mv时，LED2、LED3点亮
+  电压在0mv~500mv时，LED2闪烁
+ *
+ * */
 #include "exynos_4412.h"
 
 void Delay(unsigned int time){
 	while(time--);
 }
 
-void do_irq(void){
-	/*获取产生中断的中断号*/
-	unsigned int irqNum = 0;
-	irqNum = CPU0.ICCIAR & 0x3FF;
-	/*根据中断号处理相关的中断*/
-	switch(irqNum){
-		case 0:
-			/*0号中断的处理程序*/
-			break;
-		case 1:
-			//1号中断的处理程序
-			break;
-			/*
-			 * ... ...
-			 * */
-		case 57: //按键2
-			printf("key2 press\n");
-			/*清除GPIO控制器中GPX1_1中断挂起标志位*/
-			EXT_INT41_PEND = (1 << 1);
-			/*将当前中断的中断号写回中断控制器中，以这种方式告知中断控制器当前中断已处理完毕，可以处理其他中断*/
-			CPU0.ICCEOIR = CPU0.ICCEOIR & (~(0x3FF)) | (57);
-			break;
-			/*
-			 * ... ...
-			 * */
-		case 159:
-			//159号中断的处理程序
-			break;
-		default:
-			break;
+int main(int argc, char *argv[]){
+	/*配置LED2，使其GPX2_7输出模式*/
+	GPX2.CON = GPX2.CON & (~(0xF << 28)) | (0x1 << 28);
+	/*配置LED3，使其GPX1_0输出模式*/
+	GPX1.CON = GPX1.CON & (~(0xF << 0)) | (0x1 << 0); 
+	/*配置LED4，使其GPF3_4输出模式*/
+	GPF3.CON = GPF3.CON & (~(0xF << 16)) | (0x1 << 16);
+	/*配置LED5，使其GPF3_5输出模式*/
+	GPF3.CON = GPF3.CON & (~(0xF << 20)) | (0x1 << 20);
 
+	/*选择转化通道*/
+	ADCMUX = ADCMUX & (~(0xF << 0)) | (0x3 << 0);
+	/*转化成12位*/
+	ADCCON = ADCCON | (1 << 16);
+	/*使用分频*/
+	ADCCON = ADCCON | (1 << 14);
+	/*分频倍数*/
+	ADCCON = ADCCON & (~(0xFF << 6)) | (0x13 << 6);
+	/*正常操作模式*/
+	ADCCON = ADCCON & (~(1 << 2));
+	/*将ADC读使能关闭*/
+	ADCCON = ADCCON & (~(1 << 1));
+
+	unsigned int AdcValue = 0;
+
+	while(1){
+		/*ADC转化开始*/
+		ADCCON = ADCCON | 1;
+		/*等待转化完成*/
+		while( !(ADCCON & (1 << 15)) );
+		/*读取转化结果*/
+		AdcValue = ADCDAT & 0xFFF;
+		/*将结果转化为电压(mv)*/
+		AdcValue = AdcValue * 0.44;
+		/*打印出结果*/
+		printf("AdcValue = %dmv\n", AdcValue);
+
+		if( (AdcValue >= 1501) && (AdcValue <= 1800) ){
+			/*点亮LED2，LED3，LED4，LED5*/
+			GPX2.DAT = GPX2.DAT | (0x1 << 7);
+			GPX1.DAT = GPX1.DAT | 1;
+			GPF3.DAT = GPF3.DAT | (0x1 << 4);
+			GPF3.DAT = GPF3.DAT | (0x1 << 5);
+		}else if( (AdcValue >= 1001) && (AdcValue <= 1500) ){
+			GPX2.DAT = GPX2.DAT | (0x1 << 7);
+			GPX1.DAT = GPX1.DAT | 1;
+			GPF3.DAT = GPF3.DAT | (0x1 << 4);
+			/*LED5关闭*/
+			GPF3.DAT = GPF3.DAT & (~(0x1 << 5));
+		}else if( (AdcValue >= 501) && (AdcValue <= 1000) ){
+			GPX2.DAT = GPX2.DAT | (0x1 << 7);
+			GPX1.DAT = GPX1.DAT | 1;
+			/*LED4 LED5关闭*/
+			GPF3.DAT = GPF3.DAT & (~(0x1 << 4));
+			GPF3.DAT = GPF3.DAT & (~(0x1 << 5));
+		}else{
+			while(1){
+				/*LED3 LED4 LED5关闭*/
+				GPX1.DAT = GPX1.DAT & (~(0x1));
+				GPF3.DAT = GPF3.DAT & (~(0x1 << 4));
+				GPF3.DAT = GPF3.DAT & (~(0x1 << 5));
+				/*LED2闪烁*/
+				GPX2.DAT = GPX2.DAT & (~(0x1 << 7));
+				Delay(1000000);
+				GPX2.DAT = GPX2.DAT | (0x1 << 7);
+				Delay(1000000);
+			}
+		}
 	}
 
+	return 0;
 }
+
+#if 0
+#include "exynos_4412.h"
 
 int main()
 {
-	/*外设层次 - 让外部的硬件控制器产生一个中断信号发送给中断控制器*/
-	/*将GPX1_1设置成中断功能*/
-	GPX1.CON = GPX1.CON & (~(0xF << 4)) | (0xF << 4);
-	/*设置GPX1_1中断的触发方式*/
-	EXT_INT41_CON = EXT_INT41_CON & (~(0x7 << 4)) | (0x2 << 4);
-	/*使能GPX1_1的中断功能*/
-	EXT_INT41_MASK = EXT_INT41_MASK & (~(0x1 << 1));
+	unsigned int AdcValue = 0;
+	/*选择转化通道*/
+	ADCMUX = ADCMUX & (~(0xF << 0)) | (0x3 << 0);
+	/*转化成12位*/
+	ADCCON = ADCCON | (1 << 16);
+	/*使用分频*/
+	ADCCON = ADCCON | (1 << 14);
+	/*分频倍数*/
+	ADCCON = ADCCON & (~(0xFF << 6)) | (0x13 << 6);
+	/*正常操作模式*/
+	ADCCON = ADCCON & (~(1 << 2));
+	/*将ADC读使能关闭*/
+	ADCCON = ADCCON & (~(1 << 1));
 
-	/*中断控制器层次 - 让中断控制器接收外设产生的中断信号并对其进行管理然后再转发给CPU处理*/
-	/*全局使能中断控制器使其能接收外设产生的中断信号并转发到CPU接口*/
-	ICDDCR = ICDDCR | 1;
-	/*在中断控制器中使能57号中断，使中断控制器接收到57号中断后能将其转发到CPU接口*/
-	ICDISER.ICDISER1 = ICDISER.ICDISER1 | (1 << 25);
-	/*选择由CPU0来处理57号中断*/
-	ICDIPTR.ICDIPTR14 = ICDIPTR.ICDIPTR14 & (~(0xFF	<< 8)) | (0x1 << 8);
-	/*使能中断控制器和CPU0之间的接口，使中断控制器转发的中断信号能够到达CPU0*/
-	CPU0.ICCICR = CPU0.ICCICR | 1;
-		
-	/*配置GPX2_7,使其输出模式*/
-	GPX2.CON = GPX2.CON & (~(0xF << 28)) | (0x1 << 28);
-
-	while(1)
-	{
-		/*点亮*/
-		GPX2.DAT = GPX2.DAT | (0x1 << 7);
-		/*延时*/
-		Delay(1000000);
-		/*熄灭*/
-		GPX2.DAT = GPX2.DAT & (~(0x1 << 7));
-		/*延时*/
-		Delay(1000000);
-
+	while(1){
+		/*ADC转化开始*/
+		ADCCON = ADCCON | 1;
+		/*等待转化完成*/
+		while( !(ADCCON & (1 << 15)) );
+		/*读取转化结果*/
+		AdcValue = ADCDAT & 0xFFF;
+		/*将结果转化为电压(mv)*/
+		AdcValue = AdcValue * 0.44;
+		/*打印出结果*/
+		printf("AdcValue = %dmv\n", AdcValue);
 	}
-
-
 
 	return 0;
 }
